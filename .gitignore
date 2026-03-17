@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
+
+# Test / Dump files
+exp.py
+backup.py
+backtest_results.csv
+nav_series.csv
