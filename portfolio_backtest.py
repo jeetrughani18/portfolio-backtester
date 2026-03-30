@@ -21,6 +21,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CSV_FILE = os.path.join(SCRIPT_DIR, "ivcapital pms.csv")
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, "backtest_results.csv")
 NAV_OUTPUT_FILE = os.path.join(SCRIPT_DIR, "nav_series.csv")
+CORR_OUTPUT_FILE = os.path.join(SCRIPT_DIR, "correlation_matrix.csv")
 LIQUID_FUND_TICKER = "0P0001BB41.BO"
 LIQUID_FUND_LABEL = "LIQUIDFUND"
 
@@ -28,7 +29,7 @@ BENCHMARKS = {
     "1": ("Nifty 50",  "^NSEI"),
     "2": ("Nifty 100", "^CNX100"),
     "3": ("Nifty 200", "^CNX200"),
-    "4": ("Nifty 500", "^CNX500"),
+    "4": ("Nifty 500", "^CRSLDX"),
     "5": ("BSE 500",   "BSE-500.BO"),
 }
 
@@ -338,10 +339,60 @@ def compute_metrics(nav_series: pd.Series, risk_free_rate: float) -> dict:
     }
 
 
+def compute_relative_metrics(portfolio_nav: pd.Series,
+                             benchmark_nav: pd.Series) -> dict:
+    """
+    Compute metrics that require both portfolio and benchmark NAV:
+      - Tracking Error = std(excess)
+      - Information Ratio = mean(excess) / std(excess)
+      - Beta = Cov(Rp, Rb) / Var(Rb)
+    """
+    port_ret = portfolio_nav.pct_change().dropna()
+    bm_ret = benchmark_nav.pct_change().dropna()
+
+    # Align on common dates
+    common = port_ret.index.intersection(bm_ret.index)
+    port_ret = port_ret.loc[common]
+    bm_ret = bm_ret.loc[common]
+
+    # Excess returns (daily)
+    excess = port_ret - bm_ret
+
+    # Tracking Error
+    tracking_error = excess.std()
+
+    # Information Ratio
+    if tracking_error != 0:
+        ir = excess.mean() / tracking_error
+    else:
+        ir = 0.0
+
+    # Beta = Cov(Rp, Rm) / Var(Rm)
+    cov = np.cov(port_ret, bm_ret)[0, 1]
+    var_bm = np.var(bm_ret, ddof=1)
+    beta = cov / var_bm if var_bm != 0 else 0.0
+
+    return {
+        "Tracking Error":      round(tracking_error * 100, 4),   # in %
+        "Information Ratio":   round(ir, 4),
+        "Beta":                round(beta, 4),
+    }
+
+
+def compute_correlation_matrix(stock_prices: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute the correlation matrix of daily returns across all stocks
+    in the portfolio.
+    """
+    daily_returns = stock_prices.pct_change().dropna()
+    return daily_returns.corr().round(4)
+
+
 # ──────────────────────────────────────────────
 # 6. Display & save results
 # ──────────────────────────────────────────────
 def display_results(portfolio_metrics: dict, benchmark_metrics: dict,
+                    relative_metrics: dict, corr_matrix: pd.DataFrame,
                     bm_name: str, period_label: str, risk_free_rate: float):
     """Print a formatted table and save to CSV."""
 
@@ -359,14 +410,44 @@ def display_results(portfolio_metrics: dict, benchmark_metrics: dict,
         print(f"  {key:<22s} {pval:>14} {bval:>14}")
     print("=" * 60)
 
-    # Save to CSV
-    results_df = pd.DataFrame({
-        "Metric": all_keys,
-        "Portfolio": [portfolio_metrics[k] for k in all_keys],
-        "Benchmark": [benchmark_metrics[k] for k in all_keys],
-    })
+    # Print relative metrics (portfolio vs benchmark)
+    print(f"\n{'='*60}")
+    print(f"  RELATIVE METRICS  (Portfolio vs {bm_name})")
+    print(f"{'='*60}")
+    print(f"  {'Metric':<22s} {'Value':>14s}")
+    print("-" * 60)
+    for key, val in relative_metrics.items():
+        print(f"  {key:<22s} {val:>14}")
+    print("=" * 60)
+
+    # Print correlation matrix
+    print(f"\n{'='*60}")
+    print(f"  CORRELATION MATRIX  (Daily Returns)")
+    print(f"{'='*60}")
+    print(corr_matrix.to_string())
+    print("=" * 60)
+
+    # Save results to CSV (including relative metrics)
+    results_rows = []
+    for key in all_keys:
+        results_rows.append({
+            "Metric": key,
+            "Portfolio": portfolio_metrics[key],
+            "Benchmark": benchmark_metrics[key],
+        })
+    for key, val in relative_metrics.items():
+        results_rows.append({
+            "Metric": key,
+            "Portfolio": val,
+            "Benchmark": "—",
+        })
+    results_df = pd.DataFrame(results_rows)
     results_df.to_csv(OUTPUT_FILE, index=False)
-    print(f"\n💾 Results saved to {OUTPUT_FILE}\n")
+    print(f"\n💾 Results saved to {OUTPUT_FILE}")
+
+    # Save correlation matrix
+    corr_matrix.to_csv(CORR_OUTPUT_FILE)
+    print(f"💾 Correlation matrix saved to {CORR_OUTPUT_FILE}\n")
 
 
 # ──────────────────────────────────────────────
@@ -419,8 +500,15 @@ def main():
     port_metrics = compute_metrics(portfolio_nav, risk_free_rate)
     bm_metrics = compute_metrics(benchmark_nav, risk_free_rate)
 
+    # 5b. Compute relative metrics (IR, Tracking Error, Beta)
+    rel_metrics = compute_relative_metrics(portfolio_nav, benchmark_nav)
+
+    # 5c. Compute correlation matrix of daily stock returns
+    corr_matrix = compute_correlation_matrix(stock_prices)
+
     # 6. Display & save
-    display_results(port_metrics, bm_metrics, bm_name, period_label, risk_free_rate)
+    display_results(port_metrics, bm_metrics, rel_metrics, corr_matrix,
+                    bm_name, period_label, risk_free_rate)
 
 
 if __name__ == "__main__":

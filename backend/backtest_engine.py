@@ -12,7 +12,7 @@ BENCHMARKS = {
     "1": ("Nifty 50",  "^NSEI"),
     "2": ("Nifty 100", "^CNX100"),
     "3": ("Nifty 200", "^CNX200"),
-    "4": ("Nifty 500", "^CNX500"),
+    "4": ("Nifty 500", "^CRSLDX"),
     "5": ("BSE 500",   "BSE-500.BO"),
 }
 
@@ -209,6 +209,45 @@ def compute_metrics(nav_series: pd.Series, risk_free_rate: float) -> dict:
         "Max Drawdown (%)":    round(max_dd * 100, 2),
     }
 
+def compute_relative_metrics(portfolio_nav: pd.Series,
+                             benchmark_nav: pd.Series) -> dict:
+    """
+    Compute metrics that require both portfolio and benchmark NAV:
+      - Tracking Error = std(excess)
+      - Information Ratio = mean(excess) / std(excess)
+      - Beta = Cov(Rp, Rb) / Var(Rb)
+    """
+    port_ret = portfolio_nav.pct_change().dropna()
+    bm_ret = benchmark_nav.pct_change().dropna()
+
+    common = port_ret.index.intersection(bm_ret.index)
+    port_ret = port_ret.loc[common]
+    bm_ret = bm_ret.loc[common]
+
+    excess = port_ret - bm_ret
+
+    tracking_error = excess.std()
+
+    if tracking_error != 0:
+        ir = excess.mean() / tracking_error
+    else:
+        ir = 0.0
+
+    cov = np.cov(port_ret, bm_ret)[0, 1]
+    var_bm = np.var(bm_ret, ddof=1)
+    beta = cov / var_bm if var_bm != 0 else 0.0
+
+    return {
+        "Tracking Error":      round(tracking_error * 100, 4),
+        "Information Ratio":   round(ir, 4),
+        "Beta":                round(beta, 4),
+    }
+
+def compute_correlation_matrix(stock_prices: pd.DataFrame) -> pd.DataFrame:
+    """Compute the correlation matrix of daily returns across all stocks."""
+    daily_returns = stock_prices.pct_change().dropna()
+    return daily_returns.corr().round(4)
+
 def run_backtest(file_bytes: bytes, benchmark_id: str, period_id: str, risk_free_rate_pct: float):
     if benchmark_id not in BENCHMARKS:
         raise BacktestError("Invalid benchmark selection.")
@@ -240,6 +279,8 @@ def run_backtest(file_bytes: bytes, benchmark_id: str, period_id: str, risk_free
 
     port_metrics = compute_metrics(portfolio_nav, risk_free_rate)
     bm_metrics = compute_metrics(benchmark_nav, risk_free_rate)
+    rel_metrics = compute_relative_metrics(portfolio_nav, benchmark_nav)
+    corr_matrix = compute_correlation_matrix(stock_prices)
 
     # Format chart data for Recharts
     df_chart = pd.DataFrame({
@@ -258,8 +299,24 @@ def run_backtest(file_bytes: bytes, benchmark_id: str, period_id: str, risk_free
             "benchmark": bm_metrics[key]
         })
 
+    # Relative metrics (portfolio-only values)
+    relative_metrics = []
+    for key in rel_metrics.keys():
+        relative_metrics.append({
+            "name": key,
+            "value": rel_metrics[key]
+        })
+
+    # Correlation matrix as list of dicts for frontend
+    corr_data = corr_matrix.reset_index()
+    corr_data = corr_data.rename(columns={corr_data.columns[0]: "Stock"})
+    corr_records = corr_data.to_dict(orient="records")
+
     return {
         "metrics": metrics,
+        "relative_metrics": relative_metrics,
+        "correlation_matrix": corr_records,
+        "correlation_columns": list(corr_matrix.columns),
         "chart_data": chart_data,
         "logs": logs,
         "info": {

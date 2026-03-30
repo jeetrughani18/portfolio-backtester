@@ -67,12 +67,25 @@ if run_button:
                             delta_color="off" # Just displaying it as grey
                         )
                 
+                # Render Relative Metrics (IR, Tracking Error, Beta)
+                st.subheader("Relative Metrics")
+                rel_cols = st.columns(len(results["relative_metrics"]))
+                for i, rm in enumerate(results["relative_metrics"]):
+                    with rel_cols[i]:
+                        st.metric(label=rm["name"], value=rm["value"])
+                
                 # Render Chart
                 st.subheader("NAV Performance (Base 100)")
                 df_chart = pd.DataFrame(results["chart_data"])
                 df_chart["Date"] = pd.to_datetime(df_chart["Date"])
                 df_chart.set_index("Date", inplace=True)
                 st.line_chart(df_chart, use_container_width=True)
+                
+                # Render Correlation Matrix
+                st.subheader("Correlation Matrix (Daily Returns)")
+                df_corr = pd.DataFrame(results["correlation_matrix"])
+                df_corr = df_corr.set_index("Stock")
+                st.dataframe(df_corr, use_container_width=True)
                 
                 # Render Logs
                 if results["logs"]:
@@ -82,15 +95,19 @@ if run_button:
                             
                 # Expose CSV Downloads
                 st.subheader("Download Data")
-                dl_col1, dl_col2 = st.columns(2)
+                dl_col1, dl_col2, dl_col3 = st.columns(3)
                 
-                # Results CSV
+                # Results CSV (including relative metrics)
                 df_metrics = pd.DataFrame(results["metrics"])
                 df_metrics = df_metrics.rename(columns={"name": "Metric", "portfolio": "Portfolio", "benchmark": "Benchmark"})
-                csv_metrics = df_metrics.to_csv(index=False).encode('utf-8')
+                df_rel = pd.DataFrame(results["relative_metrics"])
+                df_rel = df_rel.rename(columns={"name": "Metric", "value": "Portfolio"})
+                df_rel["Benchmark"] = "—"
+                df_all_metrics = pd.concat([df_metrics, df_rel], ignore_index=True)
+                csv_metrics = df_all_metrics.to_csv(index=False).encode('utf-8')
                 
                 dl_col1.download_button(
-                    label="📥 Download Results CSV",
+                    label="📥 Results CSV",
                     data=csv_metrics,
                     file_name='backtest_results.csv',
                     mime='text/csv',
@@ -103,9 +120,19 @@ if run_button:
                 csv_nav = df_nav.to_csv(index=False).encode('utf-8')
                 
                 dl_col2.download_button(
-                    label="📥 Download NAV CSV",
+                    label="📥 NAV CSV",
                     data=csv_nav,
                     file_name='nav_series.csv',
+                    mime='text/csv',
+                    use_container_width=True
+                )
+                
+                # Correlation Matrix CSV
+                csv_corr = df_corr.to_csv().encode('utf-8')
+                dl_col3.download_button(
+                    label="📥 Correlation CSV",
+                    data=csv_corr,
+                    file_name='correlation_matrix.csv',
                     mime='text/csv',
                     use_container_width=True
                 )
