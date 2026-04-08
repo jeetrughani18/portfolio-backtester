@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Activity, Loader2, Info, Download } from 'lucide-react';
+import { Upload, Activity, Loader2, Info, Download, TrendingUp, BarChart3, Grid3X3 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
@@ -8,23 +8,31 @@ const BENCHMARKS = [
   { id: "1", name: "Nifty 50 (^NSEI)" },
   { id: "2", name: "Nifty 100 (^CNX100)" },
   { id: "3", name: "Nifty 200 (^CNX200)" },
-  { id: "4", name: "Nifty 500 (^CNX500)" },
+  { id: "4", name: "Nifty 500 (^CRSLDX)" },
   { id: "5", name: "BSE 500 (BSE-500.BO)" },
 ];
 
-const PERIODS = [
-  { id: "1", name: "1 Month" },
-  { id: "2", name: "3 Months" },
-  { id: "3", name: "6 Months" },
-  { id: "4", name: "1 Year" },
-  { id: "5", name: "3 Years" },
-  { id: "6", name: "5 Years" },
-];
+// Helper: format date as YYYY-MM-DD
+function formatDate(d) {
+  return d.toISOString().split('T')[0];
+}
+
+// Default dates: 1 year ago → today
+function getDefaultStart() {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 1);
+  return formatDate(d);
+}
+
+function getDefaultEnd() {
+  return formatDate(new Date());
+}
 
 export default function App() {
   const [file, setFile] = useState(null);
   const [benchmarkId, setBenchmarkId] = useState("1");
-  const [periodId, setPeriodId] = useState("4");
+  const [startDate, setStartDate] = useState(getDefaultStart());
+  const [endDate, setEndDate] = useState(getDefaultEnd());
   const [riskFreeRate, setRiskFreeRate] = useState("7.0");
   
   const [loading, setLoading] = useState(false);
@@ -52,7 +60,8 @@ export default function App() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("benchmark_id", benchmarkId);
-    formData.append("period_id", periodId);
+    formData.append("start_date", startDate);
+    formData.append("end_date", endDate);
     formData.append("risk_free_rate", riskFreeRate);
 
     try {
@@ -119,6 +128,41 @@ export default function App() {
     }
   };
 
+  const downloadCorrelation = () => {
+    if (!results || !results.correlation_matrix) return;
+    try {
+      const corr = results.correlation_matrix;
+      if (!corr.length) return;
+      const headers = Object.keys(corr[0]);
+      const csvRows = [headers.join(",")];
+      corr.forEach(row => {
+        csvRows.push(headers.map(h => row[h] ?? "").join(","));
+      });
+      const csvContent = csvRows.join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "correlation_matrix.csv";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Helper to get color class for correlation value
+  const getCorrColor = (val) => {
+    if (typeof val !== 'number') return '';
+    if (val >= 0.8) return 'bg-emerald-500/30 text-emerald-300';
+    if (val >= 0.5) return 'bg-emerald-500/15 text-emerald-200';
+    if (val >= 0.2) return 'bg-slate-500/15 text-slate-300';
+    if (val >= -0.2) return 'bg-slate-600/20 text-slate-400';
+    if (val >= -0.5) return 'bg-red-500/15 text-red-300';
+    return 'bg-red-500/30 text-red-300';
+  };
+
   return (
     <div className="min-h-screen p-4 md:p-8 max-w-7xl mx-auto space-y-6">
       
@@ -137,9 +181,9 @@ export default function App() {
           Configuration
         </h2>
         
-        <form onSubmit={runBacktest} className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <form onSubmit={runBacktest} className="grid grid-cols-1 md:grid-cols-5 gap-6">
           
-          <div className="col-span-1 md:col-span-4 lg:col-span-1">
+          <div className="col-span-1 md:col-span-5 lg:col-span-1">
             <label className="block text-sm font-medium text-slate-300 mb-2">Portfolio CSV</label>
             <div className="relative border-2 border-dashed border-slate-600 rounded-lg px-4 py-3 hover:border-blue-500 transition-colors cursor-pointer text-center h-[42px] flex items-center justify-center overflow-hidden">
               <input 
@@ -166,14 +210,23 @@ export default function App() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Backtest Period</label>
-            <select 
-              value={periodId} 
-              onChange={(e) => setPeriodId(e.target.value)}
+            <label className="block text-sm font-medium text-slate-300 mb-2">Start Date</label>
+            <input 
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
               className="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {PERIODS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">End Date</label>
+            <input 
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </div>
 
           <div>
@@ -187,7 +240,7 @@ export default function App() {
             />
           </div>
 
-          <div className="col-span-1 md:col-span-4 mt-2">
+          <div className="col-span-1 md:col-span-5 mt-2">
             <button 
               type="submit" 
               disabled={loading}
@@ -215,6 +268,7 @@ export default function App() {
               <span>
                 Loaded <strong>{results.info.total_stocks_loaded}</strong> stocks. 
                 {results.info.liquid_weight > 0 && ` Allocated ${(results.info.liquid_weight * 100).toFixed(2)}% to Liquid Fund.`}
+                {' '} Period: <strong>{results.info.period_label}</strong>
               </span>
             </div>
             
@@ -233,33 +287,65 @@ export default function App() {
                 <Download className="w-4 h-4 mr-2 text-blue-400" />
                 NAV CSV
               </button>
+              <button 
+                onClick={downloadCorrelation}
+                className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Download className="w-4 h-4 mr-2 text-blue-400" />
+                Correlation CSV
+              </button>
             </div>
           </div>
 
           {/* Metrics Grid */}
-          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {results.metrics.map(metric => (
-              <div key={metric.name} className="glass-panel p-5 relative overflow-hidden group hover:border-blue-500/30 transition-colors">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-blue-500/10 to-transparent rounded-bl-full pointer-events-none" />
-                <h3 className="text-sm font-medium text-slate-400 mb-3 truncate">{metric.name}</h3>
-                
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase font-semibold">Portfolio</p>
-                    <p className="text-2xl font-bold text-white shadow-sm">
-                      {metric.portfolio}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase font-semibold">Benchmark</p>
-                    <p className="text-lg text-slate-300">
-                      {metric.benchmark}
-                    </p>
+          <section>
+            <h2 className="text-xl font-semibold mb-4 flex items-center">
+              <TrendingUp className="w-5 h-5 mr-2 text-blue-400" />
+              Performance Metrics
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              {results.metrics.map(metric => (
+                <div key={metric.name} className="glass-panel p-5 relative overflow-hidden group hover:border-blue-500/30 transition-colors">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-blue-500/10 to-transparent rounded-bl-full pointer-events-none" />
+                  <h3 className="text-sm font-medium text-slate-400 mb-3 truncate">{metric.name}</h3>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs text-slate-500 uppercase font-semibold">Portfolio</p>
+                      <p className="text-2xl font-bold text-white shadow-sm">
+                        {metric.portfolio}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 uppercase font-semibold">Benchmark</p>
+                      <p className="text-lg text-slate-300">
+                        {metric.benchmark}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </section>
+
+          {/* Relative Metrics */}
+          {results.relative_metrics && results.relative_metrics.length > 0 && (
+            <section>
+              <h2 className="text-xl font-semibold mb-4 flex items-center">
+                <BarChart3 className="w-5 h-5 mr-2 text-indigo-400" />
+                Relative Metrics <span className="text-sm font-normal text-slate-400 ml-2">(Portfolio vs {results.info.benchmark_name})</span>
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {results.relative_metrics.map(rm => (
+                  <div key={rm.name} className="glass-panel p-5 relative overflow-hidden group hover:border-indigo-500/30 transition-colors">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-indigo-500/10 to-transparent rounded-bl-full pointer-events-none" />
+                    <h3 className="text-sm font-medium text-slate-400 mb-2">{rm.name}</h3>
+                    <p className="text-2xl font-bold text-white">{rm.value}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Chart Section */}
           <section className="glass-panel p-6">
@@ -308,6 +394,51 @@ export default function App() {
               </ResponsiveContainer>
             </div>
           </section>
+
+          {/* Correlation Matrix */}
+          {results.correlation_matrix && results.correlation_matrix.length > 0 && (
+            <section className="glass-panel p-6">
+              <h2 className="text-xl font-semibold mb-6 flex items-center">
+                <Grid3X3 className="w-5 h-5 mr-2 text-emerald-400" />
+                Correlation Matrix <span className="text-sm font-normal text-slate-400 ml-2">(Daily Returns)</span>
+              </h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr>
+                      <th className="text-left text-slate-400 font-semibold p-3 bg-slate-800/50 rounded-tl-lg sticky left-0 z-10">Stock</th>
+                      {results.correlation_columns.map(col => (
+                        <th key={col} className="text-center text-slate-400 font-semibold p-3 bg-slate-800/50 min-w-[80px]">
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.correlation_matrix.map((row, idx) => (
+                      <tr key={idx} className="border-t border-slate-700/50 hover:bg-slate-700/20 transition-colors">
+                        <td className="text-left font-semibold text-slate-300 p-3 bg-slate-800/30 sticky left-0 z-10">
+                          {row.Stock}
+                        </td>
+                        {results.correlation_columns.map(col => {
+                          const val = row[col];
+                          const isIdentity = row.Stock === col;
+                          return (
+                            <td 
+                              key={col} 
+                              className={`text-center p-3 font-mono text-sm ${isIdentity ? 'bg-blue-500/10 text-blue-300 font-bold' : getCorrColor(val)}`}
+                            >
+                              {typeof val === 'number' ? val.toFixed(4) : val}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
           
           {/* Logs */}
           {results.logs && results.logs.length > 0 && (

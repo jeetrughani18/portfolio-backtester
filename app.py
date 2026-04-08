@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from backend.backtest_engine import run_backtest, BacktestError, BENCHMARKS, PERIODS
+from datetime import date, timedelta
+from backend.backtest_engine import run_backtest, BacktestError, BENCHMARKS
 
 st.set_page_config(page_title="Portfolio Backtester", layout="wide", page_icon="📈")
 
@@ -22,14 +23,11 @@ with st.sidebar:
         format_func=lambda x: benchmark_options[x]
     )
     
-    # Extract keys and labels for the period selectbox
-    period_options = {k: v[0] for k, v in PERIODS.items()}
-    selected_period_key = st.selectbox(
-        "Backtest Period", 
-        options=list(period_options.keys()), 
-        format_func=lambda x: period_options[x],
-        index=3  # Default to 1 Year (which is the 4th item)
-    )
+    # Manual date inputs
+    st.subheader("Backtest Period")
+    default_start = date.today() - timedelta(days=365)
+    start_date = st.date_input("Start Date", value=default_start)
+    end_date = st.date_input("End Date", value=date.today())
     
     risk_free_rate = st.number_input("Risk-Free Rate (%)", value=7.0, step=0.1)
     
@@ -48,15 +46,17 @@ if run_button:
                 results = run_backtest(
                     file_bytes=file_bytes,
                     benchmark_id=selected_benchmark_key,
-                    period_id=selected_period_key,
+                    start_date_str=start_date.strftime("%Y-%m-%d"),
+                    end_date_str=end_date.strftime("%Y-%m-%d"),
                     risk_free_rate_pct=risk_free_rate
                 )
                 
                 info = results["info"]
                 liquid_msg = f"Allocated **{info['liquid_weight']*100:.2f}%** to Liquid Fund." if info["liquid_weight"] > 0 else ""
-                st.info(f"Loaded **{info['total_stocks_loaded']}** stocks. {liquid_msg}")
+                st.info(f"Loaded **{info['total_stocks_loaded']}** stocks. {liquid_msg} Period: **{info['period_label']}**")
                 
                 # Render Metrics Dashboard
+                st.subheader("Performance Metrics")
                 cols = st.columns(len(results["metrics"]))
                 for i, metric in enumerate(results["metrics"]):
                     with cols[i]:
@@ -64,11 +64,11 @@ if run_button:
                             label=metric["name"], 
                             value=metric["portfolio"], 
                             delta=f"Bench: {metric['benchmark']}",
-                            delta_color="off" # Just displaying it as grey
+                            delta_color="off"
                         )
                 
                 # Render Relative Metrics (IR, Tracking Error, Beta)
-                st.subheader("Relative Metrics")
+                st.subheader(f"Relative Metrics (Portfolio vs {info['benchmark_name']})")
                 rel_cols = st.columns(len(results["relative_metrics"]))
                 for i, rm in enumerate(results["relative_metrics"]):
                     with rel_cols[i]:

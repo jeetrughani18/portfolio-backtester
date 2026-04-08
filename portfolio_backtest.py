@@ -11,8 +11,7 @@ import sys
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import date
-from dateutil.relativedelta import relativedelta
+from datetime import date, datetime
 
 # ──────────────────────────────────────────────
 # Configuration
@@ -31,15 +30,6 @@ BENCHMARKS = {
     "3": ("Nifty 200", "^CNX200"),
     "4": ("Nifty 500", "^CRSLDX"),
     "5": ("BSE 500",   "BSE-500.BO"),
-}
-
-PERIODS = {
-    "1": ("1 Month",  relativedelta(months=1)),
-    "2": ("3 Months", relativedelta(months=3)),
-    "3": ("6 Months", relativedelta(months=6)),
-    "4": ("1 Year",   relativedelta(years=1)),
-    "5": ("3 Years",  relativedelta(years=3)),
-    "6": ("5 Years",  relativedelta(years=5)),
 }
 
 
@@ -77,7 +67,7 @@ def read_portfolio(csv_path: str) -> tuple[pd.DataFrame, float]:
 # 2. User inputs
 # ──────────────────────────────────────────────
 def get_user_inputs():
-    """Prompt for benchmark, period, and risk-free rate."""
+    """Prompt for benchmark, manual start/end dates, and risk-free rate."""
 
     # Benchmark
     print("Select a benchmark index:")
@@ -88,16 +78,28 @@ def get_user_inputs():
         sys.exit("Invalid benchmark selection.")
     bm_name, bm_ticker = BENCHMARKS[bm_choice]
 
-    # Period
-    print("\nSelect backtest period:")
-    for key, (label, _) in PERIODS.items():
-        print(f"  {key}. {label}")
-    pd_choice = input("Enter choice (1-6): ").strip()
-    if pd_choice not in PERIODS:
-        sys.exit("Invalid period selection.")
-    period_label, delta = PERIODS[pd_choice]
-    end_date = date.today()
-    start_date = end_date - delta
+    # Manual backtest dates
+    print("\nEnter backtest date range (format: YYYY-MM-DD):")
+    start_input = input("  Start date: ").strip()
+    end_input = input("  End date  : ").strip()
+
+    try:
+        start_date = datetime.strptime(start_input, "%Y-%m-%d").date()
+    except ValueError:
+        sys.exit("Invalid start date format. Use YYYY-MM-DD (e.g. 2023-01-01).")
+
+    try:
+        end_date = datetime.strptime(end_input, "%Y-%m-%d").date()
+    except ValueError:
+        sys.exit("Invalid end date format. Use YYYY-MM-DD (e.g. 2025-12-31).")
+
+    if start_date >= end_date:
+        sys.exit("Start date must be before end date.")
+
+    if end_date > date.today():
+        sys.exit("End date cannot be in the future.")
+
+    period_label = f"{start_date} → {end_date}"
 
     # Risk-free rate
     rf_input = input("\nEnter risk-free rate (%, e.g. 7 for 7%): ").strip()
@@ -108,7 +110,7 @@ def get_user_inputs():
 
     print(f"\n── Settings ──────────────────────────────")
     print(f"   Benchmark   : {bm_name} ({bm_ticker})")
-    print(f"   Period       : {period_label}  ({start_date} → {end_date})")
+    print(f"   Period       : {period_label}")
     print(f"   Risk-Free    : {risk_free_rate*100:.2f}%")
     print(f"──────────────────────────────────────────\n")
 
@@ -384,7 +386,7 @@ def compute_correlation_matrix(stock_prices: pd.DataFrame) -> pd.DataFrame:
     Compute the correlation matrix of daily returns across all stocks
     in the portfolio.
     """
-    daily_returns = stock_prices.pct_change().dropna()
+    daily_returns = stock_prices.pct_change().dropna(how="all")
     return daily_returns.corr().round(4)
 
 

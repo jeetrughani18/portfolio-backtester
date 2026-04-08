@@ -27,7 +27,8 @@ def read_root():
 async def handle_backtest(
     file: UploadFile,
     benchmark_id: str = Form(...),
-    period_id: str = Form(...),
+    start_date: str = Form(...),
+    end_date: str = Form(...),
     risk_free_rate: float = Form(...)
 ):
     if not file.filename.endswith(".csv"):
@@ -36,11 +37,11 @@ async def handle_backtest(
     content = await file.read()
     
     try:
-        # Pass to out engine which handles the pandas logic
         result = run_backtest(
             file_bytes=content,
             benchmark_id=benchmark_id,
-            period_id=period_id,
+            start_date_str=start_date,
+            end_date_str=end_date,
             risk_free_rate_pct=risk_free_rate
         )
         return result

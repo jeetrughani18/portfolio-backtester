@@ -2,8 +2,7 @@ import io
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import date
-from dateutil.relativedelta import relativedelta
+from datetime import date, datetime
 
 LIQUID_FUND_TICKER = "0P0001BB41.BO"
 LIQUID_FUND_LABEL = "LIQUIDFUND"
@@ -14,15 +13,6 @@ BENCHMARKS = {
     "3": ("Nifty 200", "^CNX200"),
     "4": ("Nifty 500", "^CRSLDX"),
     "5": ("BSE 500",   "BSE-500.BO"),
-}
-
-PERIODS = {
-    "1": ("1 Month",  relativedelta(months=1)),
-    "2": ("3 Months", relativedelta(months=3)),
-    "3": ("6 Months", relativedelta(months=6)),
-    "4": ("1 Year",   relativedelta(years=1)),
-    "5": ("3 Years",  relativedelta(years=3)),
-    "6": ("5 Years",  relativedelta(years=5)),
 }
 
 class BacktestError(Exception):
@@ -245,19 +235,32 @@ def compute_relative_metrics(portfolio_nav: pd.Series,
 
 def compute_correlation_matrix(stock_prices: pd.DataFrame) -> pd.DataFrame:
     """Compute the correlation matrix of daily returns across all stocks."""
-    daily_returns = stock_prices.pct_change().dropna()
+    daily_returns = stock_prices.pct_change().dropna(how="all")
     return daily_returns.corr().round(4)
 
-def run_backtest(file_bytes: bytes, benchmark_id: str, period_id: str, risk_free_rate_pct: float):
+def run_backtest(file_bytes: bytes, benchmark_id: str, start_date_str: str, end_date_str: str, risk_free_rate_pct: float):
     if benchmark_id not in BENCHMARKS:
         raise BacktestError("Invalid benchmark selection.")
-    if period_id not in PERIODS:
-        raise BacktestError("Invalid period selection.")
 
     bm_name, bm_ticker = BENCHMARKS[benchmark_id]
-    period_label, delta = PERIODS[period_id]
-    end_date = date.today()
-    start_date = end_date - delta
+
+    try:
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise BacktestError("Invalid start date format. Use YYYY-MM-DD.")
+
+    try:
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise BacktestError("Invalid end date format. Use YYYY-MM-DD.")
+
+    if start_date >= end_date:
+        raise BacktestError("Start date must be before end date.")
+
+    if end_date > date.today():
+        raise BacktestError("End date cannot be in the future.")
+
+    period_label = f"{start_date} → {end_date}"
     risk_free_rate = risk_free_rate_pct / 100.0
 
     portfolio, liquid_weight = read_portfolio(file_bytes)
